@@ -331,60 +331,28 @@ static void gdk_android_queue_event(GdkEvent *event)
     _gdk_event_queue_append(&_gdk_display->display, event);
 }
 
-static void generate_motion_event(GdkEventType type, AInputEvent *aevent, GdkEvent *crossingEvent)
+static void generate_motion_event(GdkEventType type, AInputEvent *aevent)
 {
     GdkEvent *ev = gdk_event_new(type);
     GdkDeviceManagerAndroid *devManager;
 
     devManager = GDK_DEVICE_MANAGER_ANDROID(gdk_display_get_device_manager(&_gdk_display->display));
 
-    if (crossingEvent)
-    {
-        ev->button.x = crossingEvent->crossing.x;
-        ev->button.y = crossingEvent->crossing.y;
-        ev->button.x_root = crossingEvent->crossing.x_root;
-        ev->button.y_root = crossingEvent->crossing.y_root;
-        ev->button.window = crossingEvent->crossing.window;
-        ev->button.time = crossingEvent->crossing.time;
-    }
-    else
-    {
-        ev->button.x = (gint16) AMotionEvent_getX(aevent, 0);
-        ev->button.y = (gint16) AMotionEvent_getY(aevent, 0);
-        ev->button.x_root = ev->button.x;
-        ev->button.y_root = ev->button.y;
-        ev->button.window = _gdk_android_find_window_for_screen_pos(&ev->button.x, &ev->button.y);
-        ev->button.time = AMotionEvent_getEventTime(aevent) / 1000000;
-    }
+    ev->touch.x = (gint16) AMotionEvent_getX(aevent, 0);
+    ev->touch.y = (gint16) AMotionEvent_getY(aevent, 0);
+    ev->touch.x_root = ev->button.x;
+    ev->touch.y_root = ev->button.y;
+    ev->touch.window = _gdk_android_find_window_for_screen_pos(&ev->button.x, &ev->button.y);
+    ev->touch.time = AMotionEvent_getEventTime(aevent) / 1000000;
+
     g_object_ref(ev->button.window);
-    ev->button.axes = NULL;
-    ev->button.state = GDK_BUTTON1_MASK;
-    ev->button.button = GDK_BUTTON_PRIMARY;
+    ev->touch.axes = NULL;
+    ev->touch.state = GDK_BUTTON1_MASK;
+    ev->touch.emulating_pointer = TRUE;
     gdk_event_set_device(ev, devManager->pointer);
     //gdk_event_set_source_device(event, device_manager->system_pointer);
 
     gdk_android_queue_event(ev);
-}
-
-
-GdkEvent *create_crossing_event(GdkEventType type, AInputEvent *aevent)
-{
-    GdkEvent *ev = gdk_event_new(type);
-    GdkDeviceManagerAndroid *devManager;
-
-    devManager = GDK_DEVICE_MANAGER_ANDROID(gdk_display_get_device_manager(&_gdk_display->display));
-
-    ev->crossing.x = (gint16) AMotionEvent_getX(aevent, 0);
-    ev->crossing.y = (gint16) AMotionEvent_getY(aevent, 0);
-    ev->crossing.x_root = ev->crossing.x;
-    ev->crossing.y_root = ev->crossing.y;
-    ev->crossing.window = _gdk_android_find_window_for_screen_pos(&ev->crossing.x, &ev->crossing.y);
-    g_object_ref(ev->crossing.window);
-    ev->crossing.time = AMotionEvent_getEventTime(aevent) / 1000000; //android time is in nanoseconds
-    gdk_event_set_device(ev, devManager->pointer);
-    //gdk_event_set_source_device(event, device_manager->system_pointer);
-
-    return ev;
 }
 
 int32_t android_handle_input(struct android_app *app, AInputEvent *event)
@@ -395,17 +363,13 @@ int32_t android_handle_input(struct android_app *app, AInputEvent *event)
         switch(AMotionEvent_getAction(event))
         {
         case AMOTION_EVENT_ACTION_DOWN:
-            crossingEvent = create_crossing_event(GDK_ENTER_NOTIFY, event);
-            gdk_android_queue_event(crossingEvent);
-            generate_motion_event(GDK_BUTTON_PRESS, event, crossingEvent);
+            generate_motion_event(GDK_TOUCH_BEGIN, event);
             break;
         case AMOTION_EVENT_ACTION_UP:
-            crossingEvent = create_crossing_event(GDK_LEAVE_NOTIFY, event);
-            generate_motion_event(GDK_BUTTON_RELEASE, event, crossingEvent);
-            gdk_android_queue_event(crossingEvent);
+            generate_motion_event(GDK_TOUCH_END, event);
             break;
         case AMOTION_EVENT_ACTION_MOVE:
-            generate_motion_event(GDK_MOTION_NOTIFY, event, crossingEvent);
+            generate_motion_event(GDK_TOUCH_UPDATE, event);
             break;
         default:
             break;
