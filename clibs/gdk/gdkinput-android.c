@@ -331,19 +331,20 @@ static void gdk_android_queue_event(GdkEvent *event)
     _gdk_event_queue_append(&_gdk_display->display, event);
 }
 
-static void generate_motion_event(GdkEventType type, AInputEvent *aevent)
+static void generate_motion_event(GdkEventType type, AInputEvent *aevent, int index)
 {
     GdkEvent *ev = gdk_event_new(type);
     GdkDeviceManagerAndroid *devManager;
 
     devManager = GDK_DEVICE_MANAGER_ANDROID(gdk_display_get_device_manager(&_gdk_display->display));
 
-    ev->touch.x = (gint16) AMotionEvent_getX(aevent, 0);
-    ev->touch.y = (gint16) AMotionEvent_getY(aevent, 0);
+    ev->touch.x = (gint16) AMotionEvent_getX(aevent, index);
+    ev->touch.y = (gint16) AMotionEvent_getY(aevent, index);
     ev->touch.x_root = ev->button.x;
     ev->touch.y_root = ev->button.y;
     ev->touch.window = _gdk_android_find_window_for_screen_pos(&ev->button.x, &ev->button.y);
     ev->touch.time = AMotionEvent_getEventTime(aevent) / 1000000;
+    ev->touch.sequence = GUINT_TO_POINTER(AMotionEvent_getPointerId(aevent, index));
 
     g_object_ref(ev->button.window);
     ev->touch.axes = NULL;
@@ -357,19 +358,30 @@ static void generate_motion_event(GdkEventType type, AInputEvent *aevent)
 
 int32_t android_handle_input(struct android_app *app, AInputEvent *event)
 {
-    GdkEvent *crossingEvent = NULL;
+    int32_t action;
+    int index;
+    int count;
+
     if (AInputEvent_getType(event) == AMOTION_EVENT_AXIS_PRESSURE)
     {
-        switch(AMotionEvent_getAction(event))
+        action = AMotionEvent_getAction(event);
+        index = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+        switch(action & AMOTION_EVENT_ACTION_MASK)
         {
         case AMOTION_EVENT_ACTION_DOWN:
-            generate_motion_event(GDK_TOUCH_BEGIN, event);
+        case AMOTION_EVENT_ACTION_POINTER_DOWN:
+            generate_motion_event(GDK_TOUCH_BEGIN, event, index);
             break;
         case AMOTION_EVENT_ACTION_UP:
-            generate_motion_event(GDK_TOUCH_END, event);
+        case AMOTION_EVENT_ACTION_POINTER_UP:
+            generate_motion_event(GDK_TOUCH_END, event, index);
             break;
         case AMOTION_EVENT_ACTION_MOVE:
-            generate_motion_event(GDK_TOUCH_UPDATE, event);
+            count = AMotionEvent_getPointerCount(event);
+            for(index=0; index < count; index++)
+            {
+                generate_motion_event(GDK_TOUCH_UPDATE, event, index);
+            }
             break;
         default:
             break;
